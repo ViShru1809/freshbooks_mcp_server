@@ -1,66 +1,58 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 import requests
 import os
-import json
+from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 
 FRESHBOOKS_TOKEN = os.getenv("FRESHBOOKS_TOKEN")
 ACCOUNT_ID = os.getenv("FRESHBOOKS_ACCOUNT_ID")
 
+print("FRESHBOOKS_TOKEN is None?", FRESHBOOKS_TOKEN is None)
+print("ACCOUNT_ID is:", ACCOUNT_ID)
+
+# Create FastAPI app
 app = FastAPI()
 
-@app.websocket("/mcp")
-async def mcp_handler(websocket: WebSocket):
-    await websocket.accept()
-    print("✅ Claude connected via MCP")
+@app.get("/")
+def read_root():
+    return JSONResponse({
+        "message": "Welcome to the FreshBooks MCP server.",
+        "available_routes": ["/mcp/context"]
+    })
 
-    try:
-        while True:
-            data = await websocket.receive_text()
-            print("⬅️ Received:", data)
+@app.get("/favicon.ico")
+def favicon():
+    return JSONResponse(status_code=204, content={})
 
-            request = json.loads(data)
-            req_type = request.get("type")
-
-            # Only supporting "get_context" calls for now
-            if req_type == "get_context":
-                context = await fetch_freshbooks_context()
-                response = {
-                    "type": "context",
-                    "context": context
-                }
-                await websocket.send_text(json.dumps(response))
-                print("➡️ Sent context")
-            else:
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": f"Unsupported request type: {req_type}"
-                }))
-
-    except WebSocketDisconnect:
-        print("❌ Claude disconnected")
-
-
-async def fetch_freshbooks_context():
+@app.get("/mcp/context")
+def get_context():
     if not FRESHBOOKS_TOKEN or not ACCOUNT_ID:
-        return {"error": "Missing credentials"}
+        return JSONResponse(status_code=500, content={
+            "error": "Missing FreshBooks token or account ID"
+        })
 
     headers = {
         "Authorization": f"Bearer {FRESHBOOKS_TOKEN}",
         "Api-Version": "alpha"
     }
 
-    url = f"https://api.freshbooks.com/accounting/account/{ACCOUNT_ID}/invoices/invoices"
-    res = requests.get(url, headers=headers)
+    invoices_url = f"https://api.freshbooks.com/accounting/account/{ACCOUNT_ID}/invoices/invoices"
+    print(f"Sending GET to: {invoices_url}")
+    print(f"Using token: {'...' + FRESHBOOKS_TOKEN[-20:]}")
 
-    if res.status_code != 200:
-        return {"error": "Failed to fetch invoices"}
+    response = requests.get(invoices_url, headers=headers)
+    print("Response Code:", response.status_code)
+    print("Response Body:", response.text)
 
-    invoices = res.json().get("response", {}).get("result", {}).get("invoices", [])
+    if response.status_code != 200:
+        return JSONResponse(status_code=500, content={"error": "Failed to fetch invoices"})
 
-    return {
+    invoices = response.json().get("response", {}).get("result", {}).get("invoices", [])
+
+    context = {
         "freshbooks_summary": [
             {
                 "invoice_number": inv.get("invoice_number"),
@@ -73,3 +65,5 @@ async def fetch_freshbooks_context():
             for inv in invoices
         ]
     }
+
+    return context
