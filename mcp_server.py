@@ -13,6 +13,17 @@ print("ACCOUNT_ID is:", ACCOUNT_ID)
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return jsonify({
+        "message": "Welcome to the FreshBooks MCP server.",
+        "available_routes": ["/mcp/context"]
+    })
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
 @app.route("/mcp/context", methods=["GET"])
 def get_context():
     if not FRESHBOOKS_TOKEN or not ACCOUNT_ID:
@@ -56,3 +67,14 @@ if __name__ == "__main__":
     print("Starting MCP Server on http://localhost:5001/mcp/context")
     port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port, debug=True)
+
+    @app.route("/")
+def home():
+    return jsonify({
+        "message": "Welcome to the FreshBooks MCP server.",
+        "available_routes": ["/mcp/context"]
+    })
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
