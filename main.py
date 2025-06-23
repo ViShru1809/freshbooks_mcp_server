@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
@@ -15,74 +15,61 @@ app = FastAPI()
 @app.get("/")
 def read_root():
     return {
-        "message": "Welcome to the FreshBooks MCP server.",
+        "message": "Welcome to the FreshBooks - MCP server.",
         "available_routes": ["/mcp/context"]
     }
 
-@app.websocket("/mcp/context")
-async def mcp_handler(websocket: WebSocket):
-    await websocket.accept()
+@app.post("/mcp/context")
+async def mcp_handler(request: Request):
     try:
-        while True:
-            data = await websocket.receive_text()
-            print("Received:", data)
+        msg = await request.json()
 
-            try:
-                msg = json.loads(data)
+        if msg.get("type") == "connect":
+            return JSONResponse({"type": "ready"})
 
-                if msg.get("type") == "connect":
-                    await websocket.send_text(json.dumps({"type": "ready"}))
+        elif msg.get("type") == "get":
+            headers = {
+                "Authorization": f"Bearer {FRESHBOOKS_TOKEN}",
+                "Api-Version": "alpha"
+            }
 
-                elif msg.get("type") == "get":
-                    # Fetch invoices from FreshBooks
-                    headers = {
-                        "Authorization": f"Bearer {FRESHBOOKS_TOKEN}",
-                        "Api-Version": "alpha"
-                    }
+            url = f"https://api.freshbooks.com/accounting/account/{ACCOUNT_ID}/invoices/invoices"
+            response = requests.get(url, headers=headers)
 
-                    url = f"https://api.freshbooks.com/accounting/account/{ACCOUNT_ID}/invoices/invoices"
-                    response = requests.get(url, headers=headers)
-
-                    if response.status_code != 200:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Failed to fetch invoices"
-                        }))
-                        continue
-
-                    invoices = response.json().get("response", {}).get("result", {}).get("invoices", [])
-
-                    context = {
-                        "type": "context",
-                        "context": {
-                            "freshbooks_summary": [
-                                {
-                                    "invoice_number": inv.get("invoice_number"),
-                                    "amount": inv.get("amount", {}).get("amount"),
-                                    "status": inv.get("status"),
-                                    "payment_status": inv.get("payment_status"),
-                                    "due_date": inv.get("due_date"),
-                                    "client": inv.get("fname")
-                                }
-                                for inv in invoices
-                            ]
-                        }
-                    }
-
-                    await websocket.send_text(json.dumps(context))
-
-                else:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Unknown request type"
-                    }))
-
-            except Exception as e:
-                print("Error:", e)
-                await websocket.send_text(json.dumps({
+            if response.status_code != 200:
+                return JSONResponse({
                     "type": "error",
-                    "message": str(e)
-                }))
+                    "message": "Failed to fetch invoices"
+                })
 
-    except WebSocketDisconnect:
-        print("Disconnected")
+            invoices = response.json().get("response", {}).get("result", {}).get("invoices", [])
+
+            context = {
+                "type": "context",
+                "context": {
+                    "freshbooks_summary": [
+                        {
+                            "invoice_number": inv.get("invoice_number"),
+                            "amount": inv.get("amount", {}).get("amount"),
+                            "status": inv.get("status"),
+                            "payment_status": inv.get("payment_status"),
+                            "due_date": inv.get("due_date"),
+                            "client": inv.get("fname")
+                        }
+                        for inv in invoices
+                    ]
+                }
+            }
+
+            return JSONResponse(context)
+
+        return JSONResponse({
+            "type": "error",
+            "message": "Unknown request type"
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "type": "error",
+            "message": str(e)
+        })
