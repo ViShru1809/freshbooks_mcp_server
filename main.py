@@ -24,10 +24,22 @@ async def mcp_handler(request: Request):
     try:
         msg = await request.json()
 
-        if msg.get("type") == "connect":
-            return JSONResponse({"type": "ready"})
+        # ✅ Validate JSON-RPC structure
+        if msg.get("jsonrpc") != "2.0" or "method" not in msg or "id" not in msg:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": msg.get("id"),
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request"
+                }
+            })
 
-        elif msg.get("type") == "get":
+        method = msg["method"]
+        req_id = msg["id"]
+
+        # ✅ Handle supported method
+        if method == "getContext":
             headers = {
                 "Authorization": f"Bearer {FRESHBOOKS_TOKEN}",
                 "Api-Version": "alpha"
@@ -38,15 +50,20 @@ async def mcp_handler(request: Request):
 
             if response.status_code != 200:
                 return JSONResponse({
-                    "type": "error",
-                    "message": "Failed to fetch invoices"
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32000,
+                        "message": "Failed to fetch invoices"
+                    }
                 })
 
             invoices = response.json().get("response", {}).get("result", {}).get("invoices", [])
 
-            context = {
-                "type": "context",
-                "context": {
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
                     "freshbooks_summary": [
                         {
                             "invoice_number": inv.get("invoice_number"),
@@ -59,17 +76,24 @@ async def mcp_handler(request: Request):
                         for inv in invoices
                     ]
                 }
-            }
+            })
 
-            return JSONResponse(context)
-
-        return JSONResponse({
-            "type": "error",
-            "message": "Unknown request type"
-        })
+        else:
+            return JSONResponse({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32601,
+                    "message": "Method not found"
+                }
+            })
 
     except Exception as e:
         return JSONResponse({
-            "type": "error",
-            "message": str(e)
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32099,
+                "message": str(e)
+            }
         })
