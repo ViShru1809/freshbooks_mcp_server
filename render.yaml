@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: freshbooks-mcp-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: FRESHBOOKS_TOKEN
+        value: your_token_here
+      - key: FRESHBOOKS_ACCOUNT_ID
+        value: your_account_id_here
